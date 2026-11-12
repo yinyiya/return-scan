@@ -39,6 +39,8 @@
   .tag.g { background:var(--c2); color:var(--c); }
   .tag.w { background:#fdf2e3; color:var(--warn); }
   .muted { color:#888; font-size:14px; }
+  .notes { margin-top:8px; padding:10px; background:#f7f8f6; border-radius:8px; font-size:14px;
+           line-height:1.6; white-space:pre-wrap; word-break:break-all; color:#333; }
   .thumbs { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
   .thumbs div { position:relative; width:84px; height:84px; }
   .thumbs img { width:84px; height:84px; object-fit:cover; border-radius:8px; }
@@ -349,7 +351,8 @@ function taskHtml(t) {
       平台：${esc(t.platform || '—')}　包裹：${esc(t.pkg || '—')}<br>
       訂單編號：${esc(t.order || '—')}　退款：${esc(t.refund || '—')}<br>
       建立：${esc(t.createdBy || '—')}　負責：${esc(t.assignee || '—')}
-    </div>`;
+    </div>
+    ${t.notes ? `<div class="notes">${esc(t.notes)}</div>` : ''}`;
 }
 
 /* ---------- 選項按鈕 ---------- */
