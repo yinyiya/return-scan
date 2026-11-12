@@ -61,6 +61,16 @@
   .done { text-align:center; padding:28px 16px; }
   .done .ic { font-size:56px; }
   a { color:var(--c); }
+  #pick { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:22; display:flex; align-items:flex-end; }
+  #pick .sheet { background:#fff; width:100%; border-radius:18px 18px 0 0; padding:20px 16px 28px; max-height:90vh; overflow:auto; }
+  .qty { display:flex; gap:8px; align-items:center; }
+  .qty button { width:64px; height:56px; font-size:28px; border-radius:12px; border:2px solid var(--c); background:#fff; color:var(--c); }
+  .qty input { text-align:center; font-size:24px; font-weight:700; }
+  .pr { padding:12px; border-bottom:1px solid var(--line); font-size:15px; }
+  .pr small { color:#888; }
+  .item { display:flex; align-items:center; gap:8px; padding:10px 12px; background:var(--c2); border-radius:10px; margin-top:8px; }
+  .item b { flex:1; font-weight:600; font-size:15px; }
+  .item span { color:var(--bad); font-size:20px; padding:0 4px; }
 </style>
 </head>
 <body>
@@ -141,7 +151,13 @@
         <button class="btn ghost" style="margin:0;flex:0 0 76px;padding:10px" onclick="startScan('dShip')">📷 掃</button>
       </div>
       <label>退貨品項</label>
-      <textarea id="dItems" placeholder="例：沉水降真香環1+東非老山頭檀香香環1" style="min-height:60px"></textarea>
+      <div class="row">
+        <button class="btn ghost" style="margin:0;padding:12px" onclick="startScan('product')">📷 掃商品條碼</button>
+      </div>
+      <input id="pSearch" placeholder="或輸入品名關鍵字搜尋，例：龍柏" style="margin-top:8px" autocomplete="off">
+      <div id="pResults"></div>
+      <div id="itemList"></div>
+      <textarea id="dItems" placeholder="掃描或搜尋後自動填入，也可以直接打字" style="min-height:60px;margin-top:8px"></textarea>
       <label>姓名</label>
       <input id="dName">
       <label>電話</label>
@@ -178,6 +194,25 @@
   <div class="bar">
     <button class="btn ghost" style="margin:0" onclick="scanByPhoto()">改用拍照辨識</button>
     <button class="btn" style="margin:0;background:#555" onclick="stopScan()">取消</button>
+  </div>
+</div>
+<div id="pick" class="hidden">
+  <div class="sheet">
+    <div class="muted" id="pkCode"></div>
+    <h2 id="pkName" style="margin:6px 0 10px"></h2>
+    <div id="pkNew" class="hidden">
+      <p class="muted" style="margin:0">對照表裡沒有這個條碼，輸入品名後會記住，下次就認得。</p>
+      <input id="pkNewName" placeholder="輸入品名">
+    </div>
+    <label>寄回數量</label>
+    <div class="qty">
+      <button onclick="pkQty(-1)">－</button>
+      <input id="pkQty" type="number" inputmode="numeric" value="1">
+      <button onclick="pkQty(1)">＋</button>
+    </div>
+    <button class="btn" onclick="pkAdd()">加入退貨品項</button>
+    <button class="btn ghost" onclick="pkAdd(true)">加入並繼續掃下一個</button>
+    <button class="btn ghost" style="border-color:#bbb;color:#666" onclick="$('pick').classList.add('hidden')">取消</button>
   </div>
 </div>
 <div id="fileReaderEl" class="hidden"></div>
@@ -248,6 +283,7 @@ async function login() {
     S.who = w; ls('rp_who', w);
     $('whoBtn').textContent = w + ' ⚙';
     show('home');
+    loadProducts(true);
   } catch (e) {
     $('loginErr').textContent = '登入失敗：' + (e.message || e);
   }
@@ -261,6 +297,7 @@ async function boot() {
     S.opts = await call('init');
     $('whoBtn').textContent = S.who + ' ⚙';
     show('home');
+    loadProducts();
   } catch (e) { toast(e.message || e); show('setup'); }
   busy(false);
 }
@@ -316,6 +353,7 @@ $('barcodePhoto').addEventListener('change', async e => {
 });
 function gotCode(text) {
   if (navigator.vibrate) navigator.vibrate(80);
+  if (scanTarget === 'product') { scanTarget = null; openPick(String(text).trim()); return; }
   if (scanTarget) {
     $(scanTarget).value = String(text).trim();
     scanTarget = null;
@@ -450,6 +488,7 @@ function openCreate() {
   S.sel = {}; S.photos.n = []; renderThumbs('n');
   ['nName','nRefund'].concat(DESC_FIELDS).forEach(id => $(id).value = '');
   // 掃到的若不像官網/蝦皮訂單編號（純數字），預設當作物流單號
+  S.items = []; renderItems(); $('pSearch').value = ''; $('pResults').innerHTML = '';
   const isShip = /^\d{8,15}$/.test(S.order || '');
   $('dShip').value = isShip ? S.order : '';
   $('nOrder').value = isShip ? '' : (S.order || '');
@@ -524,6 +563,73 @@ function shrink(file, max, out) {
     img.src = url;
   });
 }
+
+/* ---------- 商品條碼對照 ---------- */
+S.prod = {};      // { code: name }
+S.prodList = [];  // [[code, name]]
+S.items = [];     // [{ name, qty }]
+
+function setProducts(rows) {
+  S.prodList = rows;
+  S.prod = {};
+  rows.forEach(r => { S.prod[r[0]] = r[1]; });
+}
+async function loadProducts(force) {
+  try {
+    const c = JSON.parse(ls('rp_prod') || 'null');
+    if (c && c.rows) setProducts(c.rows);
+    if (!force && c && Date.now() - c.at < 6 * 3600e3) return;
+  } catch (e) {}
+  try {
+    const r = await call('getProducts');
+    setProducts(r.rows);
+    ls('rp_prod', JSON.stringify({ at: Date.now(), rows: r.rows }));
+  } catch (e) { /* 對照表載入失敗時仍可手打 */ }
+}
+
+let pkCode = '', pkKnown = false;
+function openPick(code, name) {
+  pkCode = code;
+  const n = name || (S.prod && S.prod[code]) || '';
+  pkKnown = !!n;
+  $('pkCode').textContent = code ? '條碼：' + code : '';
+  $('pkName').textContent = n || '找不到這個條碼';
+  $('pkNew').classList.toggle('hidden', pkKnown);
+  $('pkNewName').value = '';
+  $('pkQty').value = 1;
+  $('pick').classList.remove('hidden');
+}
+function pkQty(d) { $('pkQty').value = Math.max(1, (parseInt($('pkQty').value, 10) || 1) + d); }
+async function pkAdd(again) {
+  let name = pkKnown ? $('pkName').textContent : $('pkNewName').value.trim();
+  if (!name) return toast('請輸入品名');
+  const qty = Math.max(1, parseInt($('pkQty').value, 10) || 1);
+  if (!pkKnown && pkCode) {
+    S.prod[pkCode] = name; S.prodList.push([pkCode, name]);
+    call('addProduct', pkCode, name).then(() => loadProducts(true)).catch(() => {});
+  }
+  const ex = S.items.find(i => i.name === name);
+  if (ex) ex.qty += qty; else S.items.push({ name: name, qty: qty });
+  renderItems();
+  $('pick').classList.add('hidden');
+  if (again) startScan('product');
+}
+function renderItems() {
+  $('itemList').innerHTML = S.items.map((it, i) =>
+    `<div class="item"><b>${esc(it.name)}</b> ×${it.qty}<span onclick="S.items.splice(${i},1);renderItems()">✕</span></div>`).join('');
+  if (S.items.length) $('dItems').value = S.items.map(i => i.name + i.qty).join('+');
+  updatePreview();
+}
+$('pSearch').addEventListener('input', () => {
+  const q = $('pSearch').value.trim().toLowerCase();
+  if (q.length < 1 || !S.prodList.length) { $('pResults').innerHTML = q && !S.prodList.length ? '<p class="muted">商品對照表載入中…</p>' : ''; return; }
+  const words = q.split(/\s+/);
+  const hits = S.prodList.filter(r => words.every(w => (r[1] + ' ' + r[0]).toLowerCase().includes(w))).slice(0, 30);
+  window._hits = hits;
+  $('pResults').innerHTML = hits.length
+    ? hits.map((r, i) => `<div class="pr" onclick="openPick(_hits[${i}][0], _hits[${i}][1])">${esc(r[1])}<br><small>${esc(r[0])}</small></div>`).join('')
+    : '<p class="muted">找不到符合的商品</p>';
+});
 
 /* ---------- 完成 ---------- */
 function done(msg, sub, url) {
