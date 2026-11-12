@@ -154,7 +154,8 @@
       <div class="row">
         <button class="btn ghost" style="margin:0;padding:12px" onclick="startScan('product')">📷 掃商品條碼</button>
       </div>
-      <input id="pSearch" placeholder="或輸入品名關鍵字搜尋，例：龍柏" style="margin-top:8px" autocomplete="off">
+      <input id="pSearch" placeholder="或輸入 SKU / 品名關鍵字，例：3082、龍柏" style="margin-top:8px" autocomplete="off"
+             onkeydown="if(event.key==='Enter'){const q=this.value.trim();if(q)openPick(q, S.prod[q]||'');}">
       <div id="pResults"></div>
       <div id="itemList"></div>
       <textarea id="dItems" placeholder="掃描或搜尋後自動填入，也可以直接打字" style="min-height:60px;margin-top:8px"></textarea>
@@ -624,7 +625,11 @@ $('pSearch').addEventListener('input', () => {
   const q = $('pSearch').value.trim().toLowerCase();
   if (q.length < 1 || !S.prodList.length) { $('pResults').innerHTML = q && !S.prodList.length ? '<p class="muted">商品對照表載入中…</p>' : ''; return; }
   const words = q.split(/\s+/);
-  const hits = S.prodList.filter(r => words.every(w => (r[1] + ' ' + r[0]).toLowerCase().includes(w))).slice(0, 30);
+  const exact = S.prodList.filter(r => r[0].toLowerCase() === q);
+  const prefix = S.prodList.filter(r => r[0].toLowerCase() !== q && r[0].toLowerCase().startsWith(q));
+  const byName = S.prodList.filter(r => !r[0].toLowerCase().startsWith(q) &&
+    words.every(w => (r[1] + ' ' + r[0]).toLowerCase().includes(w)));
+  const hits = exact.concat(prefix, byName).slice(0, 30);
   window._hits = hits;
   $('pResults').innerHTML = hits.length
     ? hits.map((r, i) => `<div class="pr" onclick="openPick(_hits[${i}][0], _hits[${i}][1])">${esc(r[1])}<br><small>${esc(r[0])}</small></div>`).join('')
