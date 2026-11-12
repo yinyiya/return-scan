@@ -131,8 +131,24 @@
       <div id="nCheck" class="chips col"></div>
       <label>退款金額（可不填）</label>
       <input id="nRefund" type="number" inputmode="decimal">
-      <label>說明</label>
-      <textarea id="nNote"></textarea>
+      <h2 style="margin-top:22px">描述（會自動排成客服格式）</h2>
+      <label>退貨單號</label>
+      <input id="dRet" placeholder="官網無可空白">
+      <label>物流單號</label>
+      <div class="row">
+        <input id="dShip" inputmode="numeric">
+        <button class="btn ghost" style="margin:0;flex:0 0 76px;padding:10px" onclick="startScan('dShip')">📷 掃</button>
+      </div>
+      <label>退貨品項</label>
+      <textarea id="dItems" placeholder="例：沉水降真香環1+東非老山頭檀香香環1" style="min-height:60px"></textarea>
+      <label>姓名</label>
+      <input id="dName">
+      <label>電話</label>
+      <input id="dTel" type="tel" inputmode="tel">
+      <label>特別備註</label>
+      <textarea id="nNote" placeholder="例：已拆封使用" style="min-height:60px"></textarea>
+      <label>描述預覽</label>
+      <div id="dPreview" class="notes"></div>
       <label>照片</label>
       <button class="btn ghost" onclick="pickPhoto('n')">📸 拍照 / 選照片</button>
       <div id="nThumbs" class="thumbs"></div>
@@ -256,7 +272,9 @@ const FORMATS = () => [
   Html5QrcodeSupportedFormats.CODABAR
 ];
 
-async function startScan() {
+let scanTarget = null;   // null = 查詢訂單；否則填入指定欄位
+async function startScan(target) {
+  scanTarget = typeof target === 'string' ? target : null;
   if (typeof Html5Qrcode === 'undefined') return scanByPhoto();
   $('scanBox').classList.remove('hidden');
   try {
@@ -297,6 +315,12 @@ $('barcodePhoto').addEventListener('change', async e => {
 });
 function gotCode(text) {
   if (navigator.vibrate) navigator.vibrate(80);
+  if (scanTarget) {
+    $(scanTarget).value = String(text).trim();
+    scanTarget = null;
+    updatePreview();
+    return;
+  }
   $('orderInput').value = String(text).trim();
   doSearch();
 }
@@ -400,10 +424,29 @@ async function submitConfirm() {
 }
 
 /* ---------- 新建畫面 ---------- */
+const DESC_FIELDS = ['dRet', 'dShip', 'dItems', 'dName', 'dTel', 'nNote'];
+function buildDesc() {
+  const v = id => $(id).value.trim();
+  return [
+    '退貨單號(官網無)：' + v('dRet'),
+    '物流單號：' + v('dShip'),
+    '退貨品項：' + v('dItems'),
+    '姓名：' + v('dName'),
+    '電話：' + v('dTel'),
+    '特別備註：' + v('nNote')
+  ].join('\n');
+}
+function updatePreview() { $('dPreview').textContent = buildDesc(); }
+DESC_FIELDS.forEach(id => $(id).addEventListener('input', updatePreview));
+
 function openCreate() {
   S.sel = {}; S.photos.n = []; renderThumbs('n');
-  ['nName','nRefund','nNote'].forEach(id => $(id).value = '');
-  $('nOrder').value = S.order || '';
+  ['nName','nRefund'].concat(DESC_FIELDS).forEach(id => $(id).value = '');
+  // 掃到的若不像官網/蝦皮訂單編號（純數字），預設當作物流單號
+  const isShip = /^\d{8,15}$/.test(S.order || '');
+  $('dShip').value = isShip ? S.order : '';
+  $('nOrder').value = isShip ? '' : (S.order || '');
+  updatePreview();
   chips('nPlatform', 'nPlatform', S.opts.platform);
   chips('nPkg', 'nPkg', S.opts.pkg);
   chips('nCheck', 'nCheck', S.opts.check);
@@ -421,7 +464,7 @@ async function submitCreate() {
       pkg: S.sel.nPkg ? S.sel.nPkg.gid : '',
       check: S.sel.nCheck ? S.sel.nCheck.gid : '',
       refund: $('nRefund').value.trim(),
-      note: $('nNote').value.trim(),
+      note: buildDesc(),
       operator: S.who
     });
     await uploadAll(r.gid, 'n');
@@ -449,10 +492,11 @@ function renderThumbs(which) {
 }
 async function uploadAll(gid, which) {
   const list = S.photos[which];
-  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  const d = new Date(), p = n => String(n).padStart(2, '0');
+  const stamp = d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + '_' + p(d.getHours()) + p(d.getMinutes());
   for (let i = 0; i < list.length; i++) {
     busy(true, `上傳照片 ${i + 1}/${list.length}…`);
-    await call('uploadPhoto', gid, `拆包_${stamp}_${i + 1}.jpg`, list[i]);
+    await call('uploadPhoto', gid, `return_${stamp}_${i + 1}.jpg`, list[i]);
   }
 }
 function shrink(file, max, out) {
