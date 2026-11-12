@@ -93,6 +93,7 @@
                onkeydown="if(event.key==='Enter')doSearch()">
         <button class="btn" style="margin:0;flex:0 0 90px" onclick="doSearch()">查詢</button>
       </div>
+      <button class="btn ghost" onclick="newWithoutOrder()">＋ 沒有訂單編號，直接新增任務</button>
     </div>
     <div id="results"></div>
   </section>
@@ -438,6 +439,12 @@ function buildDesc() {
 }
 function updatePreview() { $('dPreview').textContent = buildDesc(); }
 DESC_FIELDS.forEach(id => $(id).addEventListener('input', updatePreview));
+
+function newWithoutOrder() {
+  S.order = '';
+  $('results').innerHTML = '';
+  openCreate();
+}
 
 function openCreate() {
   S.sel = {}; S.photos.n = []; renderThumbs('n');
