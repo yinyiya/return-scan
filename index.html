@@ -46,8 +46,10 @@
                  border-radius:12px; text-align:center; line-height:24px; font-size:14px; }
   .hidden { display:none !important; }
   #scanBox { position:fixed; inset:0; background:#000; z-index:20; display:flex; flex-direction:column; }
-  #reader { flex:1; }
-  #reader video { object-fit:cover; }
+  #scanArea { flex:1; display:flex; flex-direction:column; justify-content:center; overflow:hidden; }
+  #reader { width:100%; }
+  #reader video { width:100% !important; height:auto !important; display:block; }
+  #scanTip { color:#fff; text-align:center; padding:12px; font-size:15px; }
   #scanBox .bar { padding:16px; display:flex; gap:8px; background:#000; }
   #scanBox .bar button { flex:1; }
   #toast { position:fixed; left:16px; right:16px; bottom:24px; background:#222; color:#fff; padding:14px; border-radius:12px;
@@ -150,7 +152,10 @@
 </main>
 
 <div id="scanBox" class="hidden">
-  <div id="reader"></div>
+  <div id="scanArea">
+    <div id="scanTip">把條碼對準框框中間，會自動讀取</div>
+    <div id="reader"></div>
+  </div>
   <div class="bar">
     <button class="btn ghost" style="margin:0" onclick="scanByPhoto()">改用拍照辨識</button>
     <button class="btn" style="margin:0;background:#555" onclick="stopScan()">取消</button>
@@ -255,7 +260,8 @@ async function startScan() {
   try {
     qr = new Html5Qrcode('reader', { formatsToSupport: FORMATS(), verbose: false });
     await qr.start({ facingMode: 'environment' },
-      { fps: 12, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.floor(Math.min(h, w) * 0.4) }) },
+      { fps: 12, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.max(80, Math.floor(h * 0.35)) }),
+        experimentalFeatures: { useBarCodeDetectorIfSupported: true } },
       text => { stopScan(); gotCode(text); }, () => {});
   } catch (e) {
     // 有些環境不允許網頁直接開相機 → 自動改用拍照辨識
