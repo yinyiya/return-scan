@@ -4,7 +4,6 @@
 <base target="_top">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
   :root { --c:#2f6b4f; --c2:#e8f2ec; --bad:#c0392b; --warn:#d68910; --bg:#f4f5f3; --line:#dcdfd9; }
   * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
@@ -49,8 +48,13 @@
   .hidden { display:none !important; }
   #scanBox { position:fixed; inset:0; background:#000; z-index:20; display:flex; flex-direction:column; }
   #scanArea { flex:1; display:flex; flex-direction:column; justify-content:center; overflow:hidden; }
-  #reader { width:100%; }
-  #reader video { width:100% !important; height:auto !important; display:block; }
+  #camWrap { position:relative; width:100%; }
+  #video { width:100%; height:auto; display:block; background:#111; }
+  #frame { position:absolute; left:5%; top:25%; width:90%; height:50%; border:3px solid #4cd964; border-radius:12px;
+           box-shadow:0 0 0 2000px rgba(0,0,0,.35); pointer-events:none; }
+  #frame::after { content:''; position:absolute; left:4%; right:4%; top:50%; height:2px; background:rgba(255,60,60,.8); }
+  .tools { display:flex; gap:10px; justify-content:center; padding:12px; }
+  .tools button { background:rgba(255,255,255,.15); color:#fff; border:0; border-radius:20px; padding:10px 18px; font-size:16px; }
   #scanTip { color:#fff; text-align:center; padding:12px; font-size:15px; }
   #scanBox .bar { padding:16px; display:flex; gap:8px; background:#000; }
   #scanBox .bar button { flex:1; }
@@ -189,8 +193,15 @@
 
 <div id="scanBox" class="hidden">
   <div id="scanArea">
-    <div id="scanTip">把條碼對準框框中間，會自動讀取</div>
-    <div id="reader"></div>
+    <div id="scanTip">相機啟動中…</div>
+    <div id="camWrap">
+      <video id="video" playsinline muted autoplay></video>
+      <div id="frame"></div>
+    </div>
+    <div class="tools">
+      <button id="zoomBtn" class="hidden" onclick="toggleZoom()">🔍 2x</button>
+      <button id="torchBtn" class="hidden" onclick="toggleTorch()">🔦 閃光燈</button>
+    </div>
   </div>
   <div class="bar">
     <button class="btn ghost" style="margin:0" onclick="scanByPhoto()">改用拍照辨識</button>
@@ -216,7 +227,6 @@
     <button class="btn ghost" style="border-color:#bbb;color:#666" onclick="$('pick').classList.add('hidden')">取消</button>
   </div>
 </div>
-<div id="fileReaderEl" class="hidden"></div>
 <input id="photoInput" type="file" accept="image/*" capture="environment" class="hidden">
 <input id="barcodePhoto" type="file" accept="image/*" capture="environment" class="hidden">
 <div id="busy" class="hidden">處理中…</div>
@@ -232,7 +242,6 @@ const S = {
   sel: {},
   photos: { c: [], n: [] }
 };
-let qr = null;
 
 function ls(k, v) {
   try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; }
@@ -304,37 +313,105 @@ async function boot() {
 }
 
 /* ---------- 掃條碼 ---------- */
-const FORMATS = () => [
-  Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
-  Html5QrcodeSupportedFormats.CODE_93, Html5QrcodeSupportedFormats.EAN_13,
-  Html5QrcodeSupportedFormats.ITF, Html5QrcodeSupportedFormats.QR_CODE,
-  Html5QrcodeSupportedFormats.CODABAR
-];
+// 辨識引擎：Android Chrome 用系統內建；iPhone 等用 zxing-cpp (WebAssembly)
+const FORMATS = ['ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128', 'code_39', 'code_93', 'itf', 'codabar', 'qr_code'];
+let detector = null;
+async function getDetector() {
+  if (detector) return detector;
+  let BD = null;
+  if ('BarcodeDetector' in window) {
+    try {
+      const ok = await window.BarcodeDetector.getSupportedFormats();
+      if (ok.includes('ean_13') && ok.includes('code_128')) BD = window.BarcodeDetector;
+    } catch (e) {}
+  }
+  if (!BD) BD = (await import('https://cdn.jsdelivr.net/npm/barcode-detector@2.2.2/dist/es/pure.min.js')).BarcodeDetector;
+  detector = new BD({ formats: FORMATS });
+  return detector;
+}
+getDetector().catch(() => {});   // 先在背景載入，按掃描時就不用等
 
 let scanTarget = null;   // null = 查詢訂單；否則填入指定欄位
+let stream = null, scanning = false, track = null, zoomOn = false, torchOn = false;
+const cropCv = document.createElement('canvas');
+
 async function startScan(target) {
   scanTarget = typeof target === 'string' ? target : null;
-  if (typeof Html5Qrcode === 'undefined') return scanByPhoto();
   $('scanBox').classList.remove('hidden');
+  $('scanTip').textContent = '相機啟動中…';
   try {
-    qr = new Html5Qrcode('reader', { formatsToSupport: FORMATS(), verbose: false });
-    await qr.start({ facingMode: 'environment' },
-      { fps: 12, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.max(80, Math.floor(h * 0.35)) }),
-        experimentalFeatures: { useBarCodeDetectorIfSupported: true } },
-      text => { stopScan(); gotCode(text); }, () => {});
+    const det = await getDetector();
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1920 }, height: { ideal: 1080 } }
+    });
+    const v = $('video');
+    v.srcObject = stream;
+    await v.play();
+    track = stream.getVideoTracks()[0];
+    zoomOn = false; torchOn = false;
+    let caps = {};
+    try { caps = track.getCapabilities ? track.getCapabilities() : {}; } catch (e) {}
+    try {
+      if (caps.focusMode && caps.focusMode.includes('continuous'))
+        await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] });
+    } catch (e) {}
+    $('zoomBtn').classList.toggle('hidden', !caps.zoom);
+    $('torchBtn').classList.toggle('hidden', !caps.torch);
+    $('scanTip').textContent = '條碼橫放在框內，距離約 10～15 公分';
+    scanning = true;
+    scanLoop(det);
   } catch (e) {
-    // 有些環境不允許網頁直接開相機 → 自動改用拍照辨識
-    await stopScan();
-    toast('無法直接開啟相機，改用拍照辨識');
+    stopScan();
+    toast('無法開啟相機，改用拍照辨識');
     scanByPhoto();
   }
 }
-async function stopScan() {
-  $('scanBox').classList.add('hidden');
-  if (qr) { try { await qr.stop(); } catch (e) {} try { qr.clear(); } catch (e) {} qr = null; }
+
+async function scanLoop(det) {
+  if (!scanning) return;
+  const v = $('video');
+  try {
+    if (v.readyState >= 2 && v.videoWidth) {
+      // 只辨識畫面中間的框框區域，速度更快
+      const vw = v.videoWidth, vh = v.videoHeight;
+      const cw = Math.round(vw * 0.9), ch = Math.round(vh * 0.5);
+      cropCv.width = cw; cropCv.height = ch;
+      cropCv.getContext('2d').drawImage(v, (vw - cw) / 2, (vh - ch) / 2, cw, ch, 0, 0, cw, ch);
+      const codes = await det.detect(cropCv);
+      if (codes.length && codes[0].rawValue) {
+        const text = codes[0].rawValue;
+        stopScan();
+        gotCode(text);
+        return;
+      }
+    }
+  } catch (e) {}
+  setTimeout(() => scanLoop(det), 60);
 }
-async function scanByPhoto() {
-  await stopScan();
+
+async function toggleZoom() {
+  if (!track) return;
+  const z = track.getCapabilities().zoom;
+  zoomOn = !zoomOn;
+  try { await track.applyConstraints({ advanced: [{ zoom: zoomOn ? Math.min(z.max, 2) : z.min }] }); } catch (e) {}
+  $('zoomBtn').textContent = zoomOn ? '🔍 1x' : '🔍 2x';
+}
+async function toggleTorch() {
+  if (!track) return;
+  torchOn = !torchOn;
+  try { await track.applyConstraints({ advanced: [{ torch: torchOn }] }); } catch (e) {}
+}
+
+function stopScan() {
+  scanning = false;
+  $('scanBox').classList.add('hidden');
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; track = null; }
+  $('video').srcObject = null;
+  $('zoomBtn').textContent = '🔍 2x';
+}
+function scanByPhoto() {
+  stopScan();
   $('barcodePhoto').value = '';
   $('barcodePhoto').click();
 }
@@ -342,11 +419,13 @@ $('barcodePhoto').addEventListener('change', async e => {
   const f = e.target.files[0]; if (!f) return;
   busy(true, '辨識條碼中…');
   try {
-    const small = await shrink(f, 1600, 'blob');
-    const reader = new Html5Qrcode('fileReaderEl', { formatsToSupport: FORMATS(), verbose: false });
-    const text = await reader.scanFile(new File([small], 'b.jpg', { type: 'image/jpeg' }), false);
+    const det = await getDetector();
+    const blob = await shrink(f, 2000, 'blob');
+    const bmp = await createImageBitmap(blob);
+    const codes = await det.detect(bmp);
+    if (!codes.length) throw new Error('none');
     busy(false);
-    gotCode(text);
+    gotCode(codes[0].rawValue);
   } catch (err) {
     busy(false);
     toast('辨識不到條碼，請靠近一點、對準再拍一次，或手動輸入', 4000);
