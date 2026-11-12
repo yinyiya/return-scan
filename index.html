@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root { --c:#2f6b4f; --c2:#e8f2ec; --bad:#c0392b; --warn:#d68910; --bg:#f4f5f3; --line:#dcdfd9; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  body { margin:0; font-family:-apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif;
+         background:var(--bg); color:#222; font-size:16px; }
+  header { position:sticky; top:0; z-index:5; background:var(--c); color:#fff; padding:12px 16px;
+           display:flex; justify-content:space-between; align-items:center; }
+  header b { font-size:18px; }
+  header button { background:rgba(255,255,255,.18); color:#fff; border:0; border-radius:16px; padding:6px 12px; font-size:14px; }
+  main { padding:16px; max-width:560px; margin:0 auto; }
+  .card { background:#fff; border-radius:14px; padding:16px; margin-bottom:14px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  h2 { font-size:17px; margin:0 0 12px; }
+  label { display:block; font-size:14px; color:#555; margin:14px 0 6px; }
+  input, textarea, select { width:100%; font-size:17px; padding:12px; border:1px solid var(--line); border-radius:10px; background:#fff; }
+  textarea { min-height:80px; resize:vertical; }
+  .btn { display:block; width:100%; border:0; border-radius:12px; padding:15px; font-size:17px; font-weight:600;
+         background:var(--c); color:#fff; margin-top:12px; }
+  .btn.ghost { background:#fff; color:var(--c); border:2px solid var(--c); }
+  .btn.big { padding:22px; font-size:20px; }
+  .btn:disabled { opacity:.5; }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+  .chips { display:flex; flex-wrap:wrap; gap:8px; }
+  .chip { border:2px solid var(--line); background:#fff; border-radius:10px; padding:12px 14px; font-size:15px; flex:1 1 auto; text-align:center; }
+  .chip.on { border-color:var(--c); background:var(--c2); color:var(--c); font-weight:700; }
+  .chips.col .chip { flex:1 1 100%; text-align:left; }
+  .task { border:2px solid var(--line); border-radius:12px; padding:12px; margin-top:10px; }
+  .task.ok { border-color:var(--c); }
+  .task .t { font-weight:700; margin-bottom:6px; }
+  .meta { font-size:13px; color:#666; line-height:1.6; }
+  .tag { display:inline-block; font-size:12px; padding:2px 8px; border-radius:8px; background:#eee; margin-right:4px; }
+  .tag.g { background:var(--c2); color:var(--c); }
+  .tag.w { background:#fdf2e3; color:var(--warn); }
+  .muted { color:#888; font-size:14px; }
+  .thumbs { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+  .thumbs div { position:relative; width:84px; height:84px; }
+  .thumbs img { width:84px; height:84px; object-fit:cover; border-radius:8px; }
+  .thumbs span { position:absolute; top:-6px; right:-6px; background:var(--bad); color:#fff; width:24px; height:24px;
+                 border-radius:12px; text-align:center; line-height:24px; font-size:14px; }
+  .hidden { display:none !important; }
+  #scanBox { position:fixed; inset:0; background:#000; z-index:20; display:flex; flex-direction:column; }
+  #reader { flex:1; }
+  #reader video { object-fit:cover; }
+  #scanBox .bar { padding:16px; display:flex; gap:8px; background:#000; }
+  #scanBox .bar button { flex:1; }
+  #toast { position:fixed; left:16px; right:16px; bottom:24px; background:#222; color:#fff; padding:14px; border-radius:12px;
+           text-align:center; z-index:30; }
+  #busy { position:fixed; inset:0; background:rgba(255,255,255,.75); z-index:25; display:flex; align-items:center; justify-content:center;
+          font-size:17px; font-weight:600; color:var(--c); }
+  .done { text-align:center; padding:28px 16px; }
+  .done .ic { font-size:56px; }
+  a { color:var(--c); }
+</style>
+</head>
+<body>
+<header>
+  <b>退貨拆包</b>
+  <button id="whoBtn" onclick="show('setup')">設定</button>
+</header>
+
+<main>
+  <!-- 首次設定 -->
+  <section id="v-setup" class="hidden">
+    <div class="card">
+      <h2>第一次使用設定</h2>
+      <label>通關密碼</label>
+      <input id="pass" type="password" autocomplete="off">
+      <label>你的名字（會記錄在任務留言）</label>
+      <input id="who" autocomplete="off" placeholder="例：雅">
+      <button class="btn" onclick="login()">開始使用</button>
+      <p id="loginErr" style="color:var(--bad);font-weight:600"></p>
+    </div>
+  </section>
+
+  <!-- 掃描 / 查詢 -->
+  <section id="v-home" class="hidden">
+    <div class="card">
+      <button class="btn big" onclick="startScan()">📷 掃描訂單條碼</button>
+      <label>或手動輸入訂單編號</label>
+      <div class="row">
+        <input id="orderInput" autocomplete="off" autocapitalize="characters" placeholder="例：W343..."
+               onkeydown="if(event.key==='Enter')doSearch()">
+        <button class="btn" style="margin:0;flex:0 0 90px" onclick="doSearch()">查詢</button>
+      </div>
+    </div>
+    <div id="results"></div>
+  </section>
+
+  <!-- 確認既有任務 -->
+  <section id="v-confirm" class="hidden">
+    <div class="card">
+      <h2>倉庫確認</h2>
+      <div id="cTask"></div>
+      <label>倉儲確認結果</label>
+      <div id="cCheck" class="chips col"></div>
+      <label>說明 <span id="cNoteHint" class="muted"></span></label>
+      <textarea id="cNote" placeholder="包裹異常時請說明狀況"></textarea>
+      <label>照片</label>
+      <button class="btn ghost" onclick="pickPhoto('c')">📸 拍照 / 選照片</button>
+      <div id="cThumbs" class="thumbs"></div>
+      <p class="muted">送出後：倉儲確認欄位更新 → 移到「金、物流處理」→ 指派給建立任務的人</p>
+      <button class="btn" onclick="submitConfirm()">送出確認</button>
+      <button class="btn ghost" onclick="show('home')">返回</button>
+    </div>
+  </section>
+
+  <!-- 新建任務 -->
+  <section id="v-create" class="hidden">
+    <div class="card">
+      <h2>新建任務（倉儲已拆未查詢到訂單）</h2>
+      <label>任務名稱 *</label>
+      <input id="nName" placeholder="自行輸入">
+      <label>訂單編號</label>
+      <input id="nOrder" autocapitalize="characters">
+      <label>平台</label>
+      <div id="nPlatform" class="chips"></div>
+      <label>包裹類型</label>
+      <div id="nPkg" class="chips"></div>
+      <label>倉儲確認</label>
+      <div id="nCheck" class="chips col"></div>
+      <label>退款金額（可不填）</label>
+      <input id="nRefund" type="number" inputmode="decimal">
+      <label>說明</label>
+      <textarea id="nNote"></textarea>
+      <label>照片</label>
+      <button class="btn ghost" onclick="pickPhoto('n')">📸 拍照 / 選照片</button>
+      <div id="nThumbs" class="thumbs"></div>
+      <button class="btn" onclick="submitCreate()">建立任務</button>
+      <button class="btn ghost" onclick="show('home')">返回</button>
+    </div>
+  </section>
+
+  <!-- 完成 -->
+  <section id="v-done" class="hidden">
+    <div class="card done">
+      <div class="ic">✅</div>
+      <h2 id="doneMsg"></h2>
+      <p id="doneSub" class="muted"></p>
+      <p><a id="doneLink" target="_blank">在 Asana 開啟</a></p>
+      <button class="btn big" onclick="next()">下一筆</button>
+    </div>
+  </section>
+</main>
+
+<div id="scanBox" class="hidden">
+  <div id="reader"></div>
+  <div class="bar">
+    <button class="btn ghost" style="margin:0" onclick="scanByPhoto()">改用拍照辨識</button>
+    <button class="btn" style="margin:0;background:#555" onclick="stopScan()">取消</button>
+  </div>
+</div>
+<div id="fileReaderEl" class="hidden"></div>
+<input id="photoInput" type="file" accept="image/*" capture="environment" class="hidden">
+<input id="barcodePhoto" type="file" accept="image/*" capture="environment" class="hidden">
+<div id="busy" class="hidden">處理中…</div>
+<div id="toast" class="hidden"></div>
+
+<script>
+const S = {
+  pass: ls('rp_pass') || '',
+  who: ls('rp_who') || '',
+  opts: null,
+  task: null,
+  order: '',
+  sel: {},
+  photos: { c: [], n: [] }
+};
+let qr = null;
+
+function ls(k, v) {
+  try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; }
+}
+const $ = id => document.getElementById(id);
+function show(v) {
+  ['setup','home','confirm','create','done'].forEach(x => $('v-' + x).classList.toggle('hidden', x !== v));
+  window.scrollTo(0, 0);
+  if (v === 'setup') { $('pass').value = S.pass; $('who').value = S.who; }
+}
+function toast(msg, ms) {
+  const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
+  clearTimeout(toast._t); toast._t = setTimeout(() => t.classList.add('hidden'), ms || 3000);
+}
+function busy(on, msg) { $('busy').textContent = msg || '處理中…'; $('busy').classList.toggle('hidden', !on); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+// Apps Script 網頁應用程式網址（結尾 /exec）
+const API_URL = 'https://script.google.com/macros/s/AKfycbzJlfdVFLU22jMVZ95a2JqpKQTD24e3MV3pO5H6oo8h2gz05PbcehuvGbkJWoUYMcxq/exec';
+
+async function call(fn, ...args) {
+  // 放在 Apps Script 裡開啟時，直接呼叫
+  if (window.google && google.script && google.script.run) {
+    return new Promise((res, rej) => {
+      google.script.run.withSuccessHandler(res).withFailureHandler(e => rej(e))[fn](S.pass, ...args);
+    });
+  }
+  // 放在 GitHub Pages 時，透過網址呼叫（text/plain 可避免跨網域預檢）
+  let r;
+  try {
+    r = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ fn: fn, pass: S.pass, args: args }) });
+  } catch (e) { throw new Error('連不到伺服器，請檢查網路'); }
+  const j = await r.json().catch(() => { throw new Error('伺服器回應異常'); });
+  if (!j.ok) throw new Error(j.error);
+  return j.data;
+}
+
+/* ---------- 登入 ---------- */
+async function login() {
+  const w = $('who').value.trim();
+  $('loginErr').textContent = '';
+  if (!$('pass').value.trim()) return ($('loginErr').textContent = '請輸入通關密碼');
+  if (!w) return ($('loginErr').textContent = '請輸入你的名字');
+  S.pass = $('pass').value.trim();
+  busy(true, '登入中…');
+  try {
+    S.opts = await call('init');
+    ls('rp_pass', S.pass);
+    S.who = w; ls('rp_who', w);
+    $('whoBtn').textContent = w + ' ⚙';
+    show('home');
+  } catch (e) {
+    $('loginErr').textContent = '登入失敗：' + (e.message || e);
+  }
+  busy(false);
+}
+
+async function boot() {
+  if (!S.pass || !S.who) return show('setup');
+  busy(true, '載入中…');
+  try {
+    S.opts = await call('init');
+    $('whoBtn').textContent = S.who + ' ⚙';
+    show('home');
+  } catch (e) { toast(e.message || e); show('setup'); }
+  busy(false);
+}
+
+/* ---------- 掃條碼 ---------- */
+const FORMATS = () => [
+  Html5QrcodeSupportedFormats.CODE_128, Html5QrcodeSupportedFormats.CODE_39,
+  Html5QrcodeSupportedFormats.CODE_93, Html5QrcodeSupportedFormats.EAN_13,
+  Html5QrcodeSupportedFormats.ITF, Html5QrcodeSupportedFormats.QR_CODE,
+  Html5QrcodeSupportedFormats.CODABAR
+];
+
+async function startScan() {
+  if (typeof Html5Qrcode === 'undefined') return scanByPhoto();
+  $('scanBox').classList.remove('hidden');
+  try {
+    qr = new Html5Qrcode('reader', { formatsToSupport: FORMATS(), verbose: false });
+    await qr.start({ facingMode: 'environment' },
+      { fps: 12, qrbox: (w, h) => ({ width: Math.floor(w * 0.85), height: Math.floor(Math.min(h, w) * 0.4) }) },
+      text => { stopScan(); gotCode(text); }, () => {});
+  } catch (e) {
+    // 有些環境不允許網頁直接開相機 → 自動改用拍照辨識
+    await stopScan();
+    toast('無法直接開啟相機，改用拍照辨識');
+    scanByPhoto();
+  }
+}
+async function stopScan() {
+  $('scanBox').classList.add('hidden');
+  if (qr) { try { await qr.stop(); } catch (e) {} try { qr.clear(); } catch (e) {} qr = null; }
+}
+async function scanByPhoto() {
+  await stopScan();
+  $('barcodePhoto').value = '';
+  $('barcodePhoto').click();
+}
+$('barcodePhoto').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  busy(true, '辨識條碼中…');
+  try {
+    const small = await shrink(f, 1600, 'blob');
+    const reader = new Html5Qrcode('fileReaderEl', { formatsToSupport: FORMATS(), verbose: false });
+    const text = await reader.scanFile(new File([small], 'b.jpg', { type: 'image/jpeg' }), false);
+    busy(false);
+    gotCode(text);
+  } catch (err) {
+    busy(false);
+    toast('辨識不到條碼，請靠近一點、對準再拍一次，或手動輸入', 4000);
+  }
+});
+function gotCode(text) {
+  if (navigator.vibrate) navigator.vibrate(80);
+  $('orderInput').value = String(text).trim();
+  doSearch();
+}
+
+/* ---------- 查詢 ---------- */
+async function doSearch() {
+  const q = $('orderInput').value.trim();
+  if (q.length < 4) return toast('請輸入訂單編號');
+  S.order = q;
+  busy(true, '查詢 Asana 中…');
+  try {
+    const list = await call('search', q);
+    renderResults(list);
+  } catch (e) { toast(e.message || e); }
+  busy(false);
+}
+
+function renderResults(list) {
+  window._list = list;
+  const found = list.filter(t => t.inConfirm);
+  const other = list.filter(t => !t.inConfirm);
+  let h = '<div class="card">';
+  h += `<h2>訂單 ${esc(S.order)}</h2>`;
+  if (!list.length) {
+    h += '<p>在 Asana 找不到這筆訂單。</p>';
+  } else if (!found.length) {
+    h += '<p>「倉庫確認」裡沒有待確認的任務，但其他地方有相關任務：</p>';
+  } else {
+    h += '<p class="muted">點選要確認的任務：</p>';
+  }
+  found.forEach((t, i) => {
+    h += `<div class="task ok" onclick="openConfirm('${t.gid}')">${taskHtml(t)}
+          <button class="btn" style="margin-top:10px">確認這筆</button></div>`;
+  });
+  other.forEach(t => {
+    h += `<div class="task">${taskHtml(t)}</div>`;
+  });
+  h += `<button class="btn ${found.length ? 'ghost' : ''}" onclick="openCreate()">＋ 找不到，新建任務到「倉儲已拆」</button>`;
+  h += '</div>';
+  $('results').innerHTML = h;
+  if (found.length === 1 && other.length === 0) {
+    // 只有一筆就直接進確認畫面
+    openConfirm(found[0].gid);
+  }
+}
+
+function taskHtml(t) {
+  return `<div class="t">${esc(t.name)}</div>
+    <div class="meta">
+      <span class="tag ${t.inConfirm ? 'g' : 'w'}">${esc(t.completed ? '已完成' : (t.section || '—'))}</span>
+      ${t.check ? `<span class="tag">${esc(t.check)}</span>` : ''}<br>
+      平台：${esc(t.platform || '—')}　包裹：${esc(t.pkg || '—')}<br>
+      訂單編號：${esc(t.order || '—')}　退款：${esc(t.refund || '—')}<br>
+      建立：${esc(t.createdBy || '—')}　負責：${esc(t.assignee || '—')}
+    </div>`;
+}
+
+/* ---------- 選項按鈕 ---------- */
+function chips(elId, key, options) {
+  const el = $(elId);
+  el.innerHTML = options.map(o => `<div class="chip" data-g="${o.gid}">${esc(o.name)}</div>`).join('');
+  el.querySelectorAll('.chip').forEach(c => c.onclick = () => {
+    const was = c.classList.contains('on');
+    el.querySelectorAll('.chip').forEach(x => x.classList.remove('on'));
+    if (!was) { c.classList.add('on'); S.sel[key] = { gid: c.dataset.g, name: c.textContent }; }
+    else delete S.sel[key];
+    if (key === 'cCheck') noteHint();
+  });
+}
+function noteHint() {
+  const n = S.sel.cCheck ? S.sel.cCheck.name : '';
+  $('cNoteHint').textContent = n.indexOf('有異') >= 0 ? '（必填）' : '';
+}
+
+/* ---------- 確認畫面 ---------- */
+function openConfirm(gid) {
+  S.task = window._list.find(t => t.gid === gid);
+  S.sel = {}; S.photos.c = []; renderThumbs('c');
+  $('cNote').value = '';
+  $('cTask').innerHTML = `<div class="task">${taskHtml(S.task)}</div>`;
+  chips('cCheck', 'cCheck', S.opts.check);
+  noteHint();
+  show('confirm');
+}
+async function submitConfirm() {
+  const chk = S.sel.cCheck;
+  if (!chk) return toast('請選擇倉儲確認結果');
+  const note = $('cNote').value.trim();
+  if (chk.name.indexOf('有異') >= 0 && !note && !S.photos.c.length) return toast('包裹有異請填寫說明或拍照');
+  busy(true, '寫入 Asana 中…');
+  try {
+    const r = await call('confirmTask', {
+      gid: S.task.gid, check: chk.gid, checkName: chk.name, note: note, operator: S.who,
+      order: S.task.order ? '' : S.order
+    });
+    await uploadAll(r.gid, 'c');
+    done('已確認，移到「金、物流處理」', '已指派給 ' + (r.assignee || '建立者'), r.url);
+  } catch (e) { toast(e.message || e, 5000); }
+  busy(false);
+}
+
+/* ---------- 新建畫面 ---------- */
+function openCreate() {
+  S.sel = {}; S.photos.n = []; renderThumbs('n');
+  ['nName','nRefund','nNote'].forEach(id => $(id).value = '');
+  $('nOrder').value = S.order || '';
+  chips('nPlatform', 'nPlatform', S.opts.platform);
+  chips('nPkg', 'nPkg', S.opts.pkg);
+  chips('nCheck', 'nCheck', S.opts.check);
+  show('create');
+}
+async function submitCreate() {
+  const name = $('nName').value.trim();
+  if (!name) return toast('請輸入任務名稱');
+  busy(true, '建立任務中…');
+  try {
+    const r = await call('createTask', {
+      name: name,
+      order: $('nOrder').value.trim(),
+      platform: S.sel.nPlatform ? S.sel.nPlatform.gid : '',
+      pkg: S.sel.nPkg ? S.sel.nPkg.gid : '',
+      check: S.sel.nCheck ? S.sel.nCheck.gid : '',
+      refund: $('nRefund').value.trim(),
+      note: $('nNote').value.trim(),
+      operator: S.who
+    });
+    await uploadAll(r.gid, 'n');
+    done('已建立到「倉儲已拆未查詢到訂單」', name, r.url);
+  } catch (e) { toast(e.message || e, 5000); }
+  busy(false);
+}
+
+/* ---------- 照片 ---------- */
+let photoTarget = 'c';
+function pickPhoto(which) { photoTarget = which; $('photoInput').value = ''; $('photoInput').click(); }
+$('photoInput').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  busy(true, '壓縮照片中…');
+  try {
+    const b64 = await shrink(f, 1600, 'base64');
+    S.photos[photoTarget].push(b64);
+    renderThumbs(photoTarget);
+  } catch (err) { toast('照片讀取失敗'); }
+  busy(false);
+});
+function renderThumbs(which) {
+  $(which + 'Thumbs').innerHTML = S.photos[which].map((b, i) =>
+    `<div><img src="data:image/jpeg;base64,${b}"><span onclick="S.photos['${which}'].splice(${i},1);renderThumbs('${which}')">✕</span></div>`).join('');
+}
+async function uploadAll(gid, which) {
+  const list = S.photos[which];
+  const stamp = new Date().toISOString().slice(0, 16).replace(/[-:T]/g, '');
+  for (let i = 0; i < list.length; i++) {
+    busy(true, `上傳照片 ${i + 1}/${list.length}…`);
+    await call('uploadPhoto', gid, `拆包_${stamp}_${i + 1}.jpg`, list[i]);
+  }
+}
+function shrink(file, max, out) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let w = img.naturalWidth, h = img.naturalHeight;
+      const s = Math.min(1, max / Math.max(w, h));
+      w = Math.round(w * s); h = Math.round(h * s);
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      cv.getContext('2d').drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      if (out === 'blob') cv.toBlob(b => res(b), 'image/jpeg', 0.9);
+      else res(cv.toDataURL('image/jpeg', 0.8).split(',')[1]);
+    };
+    img.onerror = rej;
+    img.src = url;
+  });
+}
+
+/* ---------- 完成 ---------- */
+function done(msg, sub, url) {
+  $('doneMsg').textContent = msg;
+  $('doneSub').textContent = sub || '';
+  $('doneLink').href = url;
+  show('done');
+}
+function next() {
+  $('orderInput').value = ''; $('results').innerHTML = ''; S.order = '';
+  show('home');
+}
+
+boot();
+</script>
+</body>
+</html>
