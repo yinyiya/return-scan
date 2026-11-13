@@ -101,9 +101,9 @@
   <section id="v-home" class="hidden">
     <div class="card">
       <button class="btn big" onclick="startScan()">📷 掃描訂單條碼</button>
-      <label>或手動輸入訂單編號</label>
+      <label>或輸入 訂單編號／物流單號／電話／姓名</label>
       <div class="row">
-        <input id="orderInput" autocomplete="off" autocapitalize="characters" placeholder="例：W343..."
+        <input id="orderInput" autocomplete="off" placeholder="例：W343…、0912…、王小明"
                onkeydown="if(event.key==='Enter')doSearch()">
         <button class="btn" style="margin:0;flex:0 0 90px" onclick="doSearch()">查詢</button>
       </div>
@@ -447,7 +447,7 @@ function gotCode(text) {
 /* ---------- 查詢 ---------- */
 async function doSearch() {
   const q = $('orderInput').value.trim();
-  if (q.length < 4) return toast('請輸入訂單編號');
+  if (q.length < 2) return toast('請至少輸入 2 個字');
   S.order = q;
   busy(true, '查詢 Asana 中…');
   try {
@@ -462,9 +462,9 @@ function renderResults(list) {
   const found = list.filter(t => t.inConfirm);
   const other = list.filter(t => !t.inConfirm);
   let h = '<div class="card">';
-  h += `<h2>訂單 ${esc(S.order)}</h2>`;
+  h += `<h2>搜尋：${esc(S.order)}</h2>`;
   if (!list.length) {
-    h += '<p>在 Asana 找不到這筆訂單。</p>';
+    h += '<p>在 Asana 找不到相關任務。</p>';
   } else if (!found.length) {
     h += '<p>「倉庫確認」裡沒有待確認的任務，但其他地方有相關任務：</p>';
   } else {
@@ -569,9 +569,15 @@ function openCreate() {
   ['nName','nRefund'].concat(DESC_FIELDS).forEach(id => $(id).value = '');
   // 掃到的若不像官網/蝦皮訂單編號（純數字），預設當作物流單號
   S.items = []; renderItems(); $('pSearch').value = ''; $('pResults').innerHTML = '';
-  const isShip = /^\d{8,15}$/.test(S.order || '');
-  $('dShip').value = isShip ? S.order : '';
-  $('nOrder').value = isShip ? '' : (S.order || '');
+  // 依搜尋內容判斷要帶到哪個欄位：手機號碼→電話、中文→姓名、純數字→物流單號、其他→訂單編號
+  const q = S.order || '';
+  const isTel = /^09\d{8}$/.test(q.replace(/[-\s]/g, ''));
+  const isName = /[\u4e00-\u9fff]/.test(q);
+  const isShip = !isTel && /^\d{8,15}$/.test(q);
+  $('dTel').value = isTel ? q : '';
+  $('dName').value = isName ? q : '';
+  $('dShip').value = isShip ? q : '';
+  $('nOrder').value = (isTel || isName || isShip) ? '' : q;
   updatePreview();
   chips('nPlatform', 'nPlatform', S.opts.platform);
   chips('nPkg', 'nPkg', S.opts.pkg);
