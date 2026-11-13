@@ -147,8 +147,6 @@
       <label>退款金額（可不填）</label>
       <input id="nRefund" type="number" inputmode="decimal">
       <h2 style="margin-top:22px">描述（會自動排成客服格式）</h2>
-      <label>退貨單號</label>
-      <input id="dRet" placeholder="官網無可空白">
       <label>物流單號</label>
       <div class="row">
         <input id="dShip" inputmode="numeric">
@@ -162,7 +160,7 @@
              onkeydown="if(event.key==='Enter'){const q=this.value.trim();if(q)openPick(q, S.prod[q]||'');}">
       <div id="pResults"></div>
       <div id="itemList"></div>
-      <textarea id="dItems" placeholder="掃描或搜尋後自動填入，也可以直接打字" style="min-height:60px;margin-top:8px"></textarea>
+      <textarea id="dItems" placeholder="掃描或搜尋後自動填入，也可以直接打字（一行一項）" style="min-height:120px;margin-top:8px"></textarea>
       <label>姓名</label>
       <input id="dName">
       <label>電話</label>
@@ -543,13 +541,14 @@ async function submitConfirm() {
 }
 
 /* ---------- 新建畫面 ---------- */
-const DESC_FIELDS = ['dRet', 'dShip', 'dItems', 'dName', 'dTel', 'nNote'];
+const DESC_FIELDS = ['dShip', 'dItems', 'dName', 'dTel', 'nNote'];
 function buildDesc() {
   const v = id => $(id).value.trim();
   return [
-    '退貨單號(官網無)：' + v('dRet'),
     '物流單號：' + v('dShip'),
-    '退貨品項：' + v('dItems'),
+    '退貨品項：',
+    v('dItems'),
+    '',
     '姓名：' + v('dName'),
     '電話：' + v('dTel'),
     '特別備註：' + v('nNote')
@@ -703,7 +702,7 @@ async function pkAdd(again) {
 function renderItems() {
   $('itemList').innerHTML = S.items.map((it, i) =>
     `<div class="item"><b>${esc(it.name)}</b> ×${it.qty}<span onclick="S.items.splice(${i},1);renderItems()">✕</span></div>`).join('');
-  if (S.items.length) $('dItems').value = S.items.map(i => i.name + i.qty).join('+');
+  if (S.items.length) $('dItems').value = S.items.map((i, k) => (k + 1) + '.' + i.name + i.qty).join('\n');
   updatePreview();
 }
 $('pSearch').addEventListener('input', () => {
