@@ -137,7 +137,10 @@
       <label>任務名稱 *</label>
       <input id="nName" placeholder="自行輸入">
       <label>訂單編號</label>
-      <input id="nOrder" autocapitalize="characters">
+      <div class="row">
+        <input id="nOrder" autocapitalize="characters">
+        <button class="btn ghost" style="margin:0;flex:0 0 76px;padding:10px" onclick="startScan('nOrder')">📷 掃</button>
+      </div>
       <label>平台</label>
       <div id="nPlatform" class="chips"></div>
       <label>包裹類型</label>
