@@ -559,6 +559,12 @@ function buildDesc() {
 }
 function updatePreview() { $('dPreview').textContent = buildDesc(); }
 DESC_FIELDS.forEach(id => $(id).addEventListener('input', updatePreview));
+// 任務名稱自動帶入姓名（姓名被手動改過就不再覆蓋）
+let nameTouched = false;
+$('nName').addEventListener('input', () => {
+  if (!nameTouched) { $('dName').value = $('nName').value; updatePreview(); }
+});
+$('dName').addEventListener('input', () => { nameTouched = $('dName').value !== $('nName').value; });
 
 function newWithoutOrder() {
   S.order = '';
@@ -578,6 +584,8 @@ function openCreate() {
   const isShip = !isTel && /^\d{8,15}$/.test(q);
   $('dTel').value = isTel ? q : '';
   $('dName').value = isName ? q : '';
+  $('nName').value = isName ? q : '';
+  nameTouched = false;
   $('dShip').value = isShip ? q : '';
   $('nOrder').value = (isTel || isName || isShip) ? '' : q;
   updatePreview();
