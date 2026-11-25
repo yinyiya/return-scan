@@ -65,6 +65,13 @@
   .done { text-align:center; padding:28px 16px; }
   .done .ic { font-size:56px; }
   a { color:var(--c); }
+  .hd { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+  .hd h2 { margin:0; }
+  .hd button { background:var(--c2); color:var(--c); border:0; border-radius:16px; padding:8px 14px; font-size:14px; font-weight:600; }
+  .nm { display:block; width:100%; text-align:left; background:#fff; border:0; border-bottom:1px solid var(--line);
+        padding:16px 4px; font-size:18px; font-weight:600; color:#222; word-break:break-all; }
+  .nm:last-child { border-bottom:0; }
+  .nm:active { background:var(--c2); }
   #pick { position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:22; display:flex; align-items:flex-end; }
   #pick .sheet { background:#fff; width:100%; border-radius:18px 18px 0 0; padding:20px 16px 28px; max-height:90vh; overflow:auto; }
   .qty { display:flex; gap:8px; align-items:center; }
@@ -110,6 +117,10 @@
       <button class="btn ghost" onclick="newWithoutOrder()">＋ 沒有訂單編號，直接新增任務</button>
     </div>
     <div id="results"></div>
+    <div class="card">
+      <div class="hd"><h2>倉庫確認 <span id="hmCount" class="muted"></span></h2><button onclick="loadHome()">↻ 更新</button></div>
+      <div id="hmList"><p class="muted">載入中…</p></div>
+    </div>
   </section>
 
   <!-- 確認既有任務 -->
@@ -252,6 +263,7 @@ function show(v) {
   ['setup','home','confirm','create','done'].forEach(x => $('v-' + x).classList.toggle('hidden', x !== v));
   window.scrollTo(0, 0);
   if (v === 'setup') { $('pass').value = S.pass; $('who').value = S.who; }
+  if (v === 'home') loadHome();
 }
 function toast(msg, ms) {
   const t = $('toast'); t.textContent = msg; t.classList.remove('hidden');
@@ -514,6 +526,46 @@ function chips(elId, key, options) {
 function noteHint() {
   const n = S.sel.cCheck ? S.sel.cCheck.name : '';
   $('cNoteHint').textContent = n.indexOf('有異') >= 0 ? '（必填）' : '';
+}
+
+/* ---------- 首頁：倉庫確認名單 ---------- */
+S.home = null;
+let homeSeq = 0;
+function shortName(n) {
+  // 「(倉儲確認中)客戶退貨訂單：陳逸琪」→「陳逸琪」
+  const s = String(n || '').replace(/^.*客戶退貨訂單\s*[：:]\s*/, '').replace(/^[（(]倉儲確認中[）)]\s*/, '').trim();
+  return s || n;
+}
+async function loadHome() {
+  const seq = ++homeSeq;
+  if (!S.home) $('hmList').innerHTML = '<p class="muted">載入中…</p>';
+  $('hmCount').textContent = '更新中…';
+  try {
+    const list = await call('listConfirm');
+    if (seq !== homeSeq) return;
+    S.home = list;
+    $('hmCount').textContent = list.length + ' 筆';
+    $('hmList').innerHTML = list.length
+      ? list.map(t => `<button class="nm" onclick="openHome('${t.gid}')">${esc(shortName(t.name))}</button>`).join('')
+      : '<p class="muted">目前沒有待確認的任務</p>';
+  } catch (e) {
+    if (seq !== homeSeq) return;
+    $('hmCount').textContent = '';
+    if (!S.home) $('hmList').innerHTML = '<p class="muted">名單載入失敗，請按「更新」再試一次</p>';
+    else toast('名單更新失敗：' + (e.message || e));
+  }
+}
+async function openHome(gid) {
+  const t = S.home && S.home.find(x => x.gid === gid);
+  if (!t) return;
+  busy(true, '開啟任務…');
+  let fresh = t;
+  try { fresh = await call('getTask', gid); } catch (e) { busy(false); return toast(e.message || e); }
+  busy(false);
+  if (!fresh.inConfirm) { toast('這筆已經被處理過了，名單已更新', 4000); return loadHome(); }
+  S.order = ''; $('orderInput').value = ''; $('results').innerHTML = '';
+  window._list = [fresh];
+  openConfirm(gid);
 }
 
 /* ---------- 確認畫面 ---------- */
