@@ -532,7 +532,7 @@ function noteHint() {
 S.home = null;
 let homeSeq = 0;
 function shortName(n) {
-  // 「(倉儲確認中)客戶退貨訂單：陳逸琪」→「陳逸琪」
+  // 「(倉儲確認中)客戶退貨訂單：王小明」→「王小明」
   const s = String(n || '').replace(/^.*客戶退貨訂單\s*[：:]\s*/, '').replace(/^[（(]倉儲確認中[）)]\s*/, '').trim();
   return s || n;
 }
